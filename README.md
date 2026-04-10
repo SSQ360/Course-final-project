@@ -39,14 +39,15 @@ This repository provides a **new software system** (non-game): a Course Registra
 3. Iteration 3: enrollment/drop with rules (capacity/conflict/prerequisite)
 4. Iteration 4: admin controls + documentation and demo prep
 
-### Members (roles, responsibilities, portion)
+### Members (roles, responsibilities, portion) - 4-person team
 > Replace placeholders before submission.
 
 | Member | Role | Responsibilities | Portion |
 |---|---|---|---|
-| TO_BE_FILLED_A | PM/Analyst | requirement analysis, README/report writing | 35% |
-| TO_BE_FILLED_B | Developer | database, rule engine, Tkinter UI | 45% |
-| TO_BE_FILLED_C | QA/Demo | testing, scenario verification, video recording | 20% |
+| TO_BE_FILLED_A | PM/Analyst | requirement analysis, planning, README/report writing | 25% |
+| TO_BE_FILLED_B | Backend Developer | SQLite schema, enrollment engine, conflict/prerequisite logic | 30% |
+| TO_BE_FILLED_C | Frontend Developer | Tkinter UI for student/admin dashboards and chart widgets | 25% |
+| TO_BE_FILLED_D | QA/Demo Engineer | test scenarios, data validation, video recording and polishing | 20% |
 
 ### Schedule
 | Week | Planned work | Status |
@@ -64,8 +65,12 @@ This repository provides a **new software system** (non-game): a Course Registra
 ### Current status
 - Login with role-based views (`admin`, `student`)
 - Student functions: view all courses, enroll, drop, view own schedule
+- Student waitlist functions: join/leave waitlist and track queue position
 - Admin functions: open/close course, create new course
+- Admin dashboard statistics chart (courses/open/enrollments/waitlists)
+- Admin waitlist viewer per selected course
 - Rule engine: capacity, conflict, prerequisite validation
+- Auto-promotion from waitlist when a seat is released
 - SQLite persistence with seed data
 
 ### Future plan

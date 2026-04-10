@@ -6,13 +6,18 @@ from tkinter import messagebox
 from .database import init_db
 from .engine import (
     AuthUser,
+    admin_stats,
     auth_login,
     create_course,
     drop_course,
     enroll_course,
     format_course_line,
     get_student_schedule,
+    join_waitlist,
+    leave_waitlist,
     list_courses,
+    list_waitlist_for_course,
+    list_waitlist_for_student,
     set_course_open,
 )
 
@@ -98,10 +103,11 @@ class CourseApp:
         btns = tk.Frame(left, bg="#142241")
         btns.pack(fill=tk.X, padx=8, pady=(0, 8))
         tk.Button(btns, text="Enroll Selected", command=self._student_enroll).pack(side=tk.LEFT, padx=4)
+        tk.Button(btns, text="Join Waitlist", command=self._student_join_waitlist).pack(side=tk.LEFT, padx=4)
         tk.Button(btns, text="Refresh", command=self._refresh_student).pack(side=tk.LEFT, padx=4)
 
         right = tk.LabelFrame(body, text="My Schedule", fg="#E7EEFF", bg="#142241")
-        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 8))
 
         self.lst_schedule = tk.Listbox(right, width=72, height=22)
         self.lst_schedule.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
@@ -109,6 +115,14 @@ class CourseApp:
         b2 = tk.Frame(right, bg="#142241")
         b2.pack(fill=tk.X, padx=8, pady=(0, 8))
         tk.Button(b2, text="Drop Selected", command=self._student_drop).pack(side=tk.LEFT, padx=4)
+
+        wl = tk.LabelFrame(body, text="My Waitlist", fg="#E7EEFF", bg="#142241")
+        wl.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
+        self.lst_waitlist = tk.Listbox(wl, width=60, height=22)
+        self.lst_waitlist.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        b3 = tk.Frame(wl, bg="#142241")
+        b3.pack(fill=tk.X, padx=8, pady=(0, 8))
+        tk.Button(b3, text="Leave Waitlist", command=self._student_leave_waitlist).pack(side=tk.LEFT, padx=4)
 
         self._refresh_student()
 
@@ -121,6 +135,17 @@ class CourseApp:
         for c in get_student_schedule(self.user.user_id):
             line = f"[{c['id']}] {c['code']} | {c['title']} | {c['day_of_week']} {c['start_minute']//60:02d}:{c['start_minute']%60:02d}-{c['end_minute']//60:02d}:{c['end_minute']%60:02d}"
             self.lst_schedule.insert(tk.END, line)
+
+        self.lst_waitlist.delete(0, tk.END)
+        for w in list_waitlist_for_student(self.user.user_id):
+            st_h, st_m = w["start_minute"] // 60, w["start_minute"] % 60
+            ed_h, ed_m = w["end_minute"] // 60, w["end_minute"] % 60
+            line = (
+                f"[{w['course_id']}] {w['code']} | {w['title']} | "
+                f"{w['day_of_week']} {st_h:02d}:{st_m:02d}-{ed_h:02d}:{ed_m:02d} | "
+                f"position #{w['position']}"
+            )
+            self.lst_waitlist.insert(tk.END, line)
 
     @staticmethod
     def _extract_id(line: str) -> int | None:
@@ -145,6 +170,34 @@ class CourseApp:
         messagebox.showinfo("Enroll", msg)
         self._refresh_student()
 
+    def _student_join_waitlist(self) -> None:
+        sel = self.lst_courses.curselection()
+        if not sel:
+            messagebox.showinfo("Waitlist", "Select a course first.")
+            return
+        line = self.lst_courses.get(sel[0])
+        cid = self._extract_id(line)
+        if cid is None:
+            messagebox.showerror("Waitlist", "Invalid course selection.")
+            return
+        msg = join_waitlist(self.user.user_id, cid)
+        messagebox.showinfo("Waitlist", msg)
+        self._refresh_student()
+
+    def _student_leave_waitlist(self) -> None:
+        sel = self.lst_waitlist.curselection()
+        if not sel:
+            messagebox.showinfo("Waitlist", "Select a waitlist entry first.")
+            return
+        line = self.lst_waitlist.get(sel[0])
+        cid = self._extract_id(line)
+        if cid is None:
+            messagebox.showerror("Waitlist", "Invalid waitlist selection.")
+            return
+        msg = leave_waitlist(self.user.user_id, cid)
+        messagebox.showinfo("Waitlist", msg)
+        self._refresh_student()
+
     def _student_drop(self) -> None:
         sel = self.lst_schedule.curselection()
         if not sel:
@@ -166,6 +219,11 @@ class CourseApp:
         body = tk.Frame(self.root, bg="#0E1629")
         body.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
 
+        stats_fr = tk.LabelFrame(body, text="System Stats", fg="#E7EEFF", bg="#142241")
+        stats_fr.pack(fill=tk.X, pady=(0, 8))
+        self.stats_canvas = tk.Canvas(stats_fr, width=920, height=160, bg="#0f1c38", highlightthickness=0)
+        self.stats_canvas.pack(fill=tk.X, padx=8, pady=8)
+
         top = tk.LabelFrame(body, text="Courses", fg="#E7EEFF", bg="#142241")
         top.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
 
@@ -176,6 +234,7 @@ class CourseApp:
         b.pack(fill=tk.X, padx=8, pady=(0, 8))
         tk.Button(b, text="Open Selected", command=lambda: self._admin_set_open(True)).pack(side=tk.LEFT, padx=4)
         tk.Button(b, text="Close Selected", command=lambda: self._admin_set_open(False)).pack(side=tk.LEFT, padx=4)
+        tk.Button(b, text="Show Waitlist", command=self._admin_show_waitlist).pack(side=tk.LEFT, padx=4)
         tk.Button(b, text="Refresh", command=self._refresh_admin).pack(side=tk.LEFT, padx=4)
 
         bottom = tk.LabelFrame(body, text="Create Course", fg="#E7EEFF", bg="#142241")
@@ -203,9 +262,49 @@ class CourseApp:
         self._refresh_admin()
 
     def _refresh_admin(self) -> None:
+        self._draw_admin_stats()
         self.lst_admin_courses.delete(0, tk.END)
         for c in list_courses():
             self.lst_admin_courses.insert(tk.END, format_course_line(c))
+
+    def _draw_admin_stats(self) -> None:
+        st = admin_stats()
+        cv = self.stats_canvas
+        cv.delete("all")
+        data = [
+            ("Courses", st["total_courses"]),
+            ("Open", st["open_courses"]),
+            ("Enrollments", st["total_enrollments"]),
+            ("Waitlist", st["total_waitlists"]),
+        ]
+        maxv = max(1, max(v for _, v in data))
+        x0, y0 = 70, 128
+        bar_w, gap = 130, 48
+        colors = ["#7ec8ff", "#8df2a8", "#ffd27f", "#ff9eb3"]
+        cv.create_text(10, 10, anchor="nw", fill="#d9e8ff", text="Admin Dashboard", font=("Helvetica", 12, "bold"))
+        for i, (name, value) in enumerate(data):
+            x = x0 + i * (bar_w + gap)
+            h = int((value / maxv) * 84)
+            cv.create_rectangle(x, y0 - h, x + bar_w, y0, fill=colors[i], outline="")
+            cv.create_text(x + bar_w / 2, y0 + 14, text=name, fill="#d5e4ff", font=("Helvetica", 10))
+            cv.create_text(x + bar_w / 2, y0 - h - 10, text=str(value), fill="#f4f8ff", font=("Helvetica", 11, "bold"))
+
+    def _admin_show_waitlist(self) -> None:
+        sel = self.lst_admin_courses.curselection()
+        if not sel:
+            messagebox.showinfo("Waitlist", "Select a course first.")
+            return
+        line = self.lst_admin_courses.get(sel[0])
+        cid = self._extract_id(line)
+        if cid is None:
+            messagebox.showerror("Waitlist", "Invalid selection.")
+            return
+        rows = list_waitlist_for_course(cid)
+        if not rows:
+            messagebox.showinfo("Waitlist", "No students in waitlist for this course.")
+            return
+        msg = "\n".join(f"{i+1}. {r['username']} ({r['created_at']})" for i, r in enumerate(rows))
+        messagebox.showinfo("Waitlist Queue", msg)
 
     def _admin_set_open(self, is_open: bool) -> None:
         sel = self.lst_admin_courses.curselection()

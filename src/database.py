@@ -56,6 +56,17 @@ def init_db() -> None:
             )
         """)
         c.execute("""
+            CREATE TABLE IF NOT EXISTS waitlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                course_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, course_id),
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(course_id) REFERENCES courses(id)
+            )
+        """)
+        c.execute("""
             CREATE TABLE IF NOT EXISTS completions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
