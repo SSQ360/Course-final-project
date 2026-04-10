@@ -44,10 +44,10 @@ This repository provides a **new software system** (non-game): a Course Registra
 
 | Member | Role | Responsibilities | Portion |
 |---|---|---|---|
-| TO_BE_FILLED_A | PM/Analyst | requirement analysis, planning, README/report writing | 25% |
-| TO_BE_FILLED_B | Backend Developer | SQLite schema, enrollment engine, conflict/prerequisite logic | 30% |
-| TO_BE_FILLED_C | Frontend Developer | Tkinter UI for student/admin dashboards and chart widgets | 25% |
-| TO_BE_FILLED_D | QA/Demo Engineer | test scenarios, data validation, video recording and polishing | 20% |
+| TO_BE_FILLED_A | PM/Analyst | requirement analysis, planning, README/report writing |33.33% |
+| TO_BE_FILLED_B | Backend Developer | SQLite schema, enrollment engine, conflict/prerequisite logic | 33.33% |
+| TO_BE_FILLED_C | Frontend Developer | Tkinter UI for student/admin dashboards and chart widgets | 33.33% |
+| TO_BE_FILLED_D | QA/Demo Engineer | test scenarios, data validation, video recording and polishing | 33.33% |
 
 ### Schedule
 | Week | Planned work | Status |
