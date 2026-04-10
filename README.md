@@ -69,6 +69,8 @@ This repository provides a **new software system** (non-game): a Course Registra
 - Admin functions: open/close course, create new course
 - Admin dashboard statistics chart (courses/open/enrollments/waitlists)
 - Admin waitlist viewer per selected course
+- Admin manual waitlist priority adjustment (move up/down)
+- Admin one-click promote selected waitlist student (priority override admission)
 - Rule engine: capacity, conflict, prerequisite validation
 - Auto-promotion from waitlist when a seat is released
 - SQLite persistence with seed data

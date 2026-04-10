@@ -60,12 +60,27 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 course_id INTEGER NOT NULL,
+                queue_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, course_id),
                 FOREIGN KEY(user_id) REFERENCES users(id),
                 FOREIGN KEY(course_id) REFERENCES courses(id)
             )
         """)
+        # Lightweight migration for existing databases created before queue_order was introduced.
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(waitlists)").fetchall()}
+        if "queue_order" not in cols:
+            c.execute("ALTER TABLE waitlists ADD COLUMN queue_order INTEGER NOT NULL DEFAULT 0")
+            c.execute(
+                """
+                WITH ranked AS (
+                    SELECT id, ROW_NUMBER() OVER (PARTITION BY course_id ORDER BY created_at, id) AS rn
+                    FROM waitlists
+                )
+                UPDATE waitlists
+                SET queue_order = (SELECT rn FROM ranked WHERE ranked.id = waitlists.id)
+                """
+            )
         c.execute("""
             CREATE TABLE IF NOT EXISTS completions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

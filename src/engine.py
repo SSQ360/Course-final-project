@@ -130,6 +130,15 @@ def _can_enroll_now(user_id: int, course_id: int) -> Tuple[bool, str]:
         return True, ""
 
 
+def _resequence_waitlist_locked(conn, course_id: int) -> None:
+    rows = conn.execute(
+        "SELECT id FROM waitlists WHERE course_id=? ORDER BY queue_order, created_at, id",
+        (course_id,),
+    ).fetchall()
+    for i, r in enumerate(rows, start=1):
+        conn.execute("UPDATE waitlists SET queue_order=? WHERE id=?", (i, r["id"]))
+
+
 def enroll_course(user_id: int, course_id: int) -> str:
     with get_conn() as conn:
         course = conn.execute("SELECT * FROM courses WHERE id=?", (course_id,)).fetchone()
@@ -166,6 +175,7 @@ def enroll_course(user_id: int, course_id: int) -> str:
             "DELETE FROM waitlists WHERE user_id=? AND course_id=?",
             (user_id, course_id),
         )
+        _resequence_waitlist_locked(conn, course_id)
         conn.commit()
         return "Enrolled successfully."
 
@@ -225,9 +235,13 @@ def join_waitlist(user_id: int, course_id: int) -> str:
             conn.commit()
             return "Seat available now. Enrolled directly."
 
+        next_order = conn.execute(
+            "SELECT COALESCE(MAX(queue_order), 0) + 1 AS n FROM waitlists WHERE course_id=?",
+            (course_id,),
+        ).fetchone()["n"]
         conn.execute(
-            "INSERT INTO waitlists(user_id, course_id, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-            (user_id, course_id),
+            "INSERT INTO waitlists(user_id, course_id, queue_order, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+            (user_id, course_id, next_order),
         )
         conn.commit()
         return "Joined waitlist."
@@ -239,6 +253,8 @@ def leave_waitlist(user_id: int, course_id: int) -> str:
             "DELETE FROM waitlists WHERE user_id=? AND course_id=?",
             (user_id, course_id),
         )
+        if cur.rowcount > 0:
+            _resequence_waitlist_locked(conn, course_id)
         conn.commit()
         if cur.rowcount == 0:
             return "You are not in waitlist for this course."
@@ -254,12 +270,12 @@ def list_waitlist_for_student(user_id: int) -> List[dict]:
                     SELECT COUNT(*) + 1
                     FROM waitlists w2
                     WHERE w2.course_id = w.course_id
-                      AND (w2.created_at < w.created_at OR (w2.created_at = w.created_at AND w2.id <= w.id))
+                      AND (w2.queue_order < w.queue_order OR (w2.queue_order = w.queue_order AND w2.id <= w.id))
                    ) AS position
             FROM waitlists w
             JOIN courses c ON c.id = w.course_id
             WHERE w.user_id=?
-            ORDER BY w.created_at
+            ORDER BY w.queue_order, w.created_at
             """,
             (user_id,),
         ).fetchall()
@@ -270,11 +286,11 @@ def list_waitlist_for_course(course_id: int) -> List[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT w.id, u.username, w.created_at
+            SELECT w.id, w.user_id, u.username, w.queue_order, w.created_at
             FROM waitlists w
             JOIN users u ON u.id = w.user_id
             WHERE w.course_id=?
-            ORDER BY w.created_at, w.id
+            ORDER BY w.queue_order, w.created_at, w.id
             """,
             (course_id,),
         ).fetchall()
@@ -299,7 +315,7 @@ def _promote_waitlist_locked(conn, course_id: int) -> str:
         FROM waitlists w
         JOIN users u ON u.id = w.user_id
         WHERE w.course_id=?
-        ORDER BY w.created_at, w.id
+        ORDER BY w.queue_order, w.created_at, w.id
         """,
         (course_id,),
     ).fetchall()
@@ -314,6 +330,7 @@ def _promote_waitlist_locked(conn, course_id: int) -> str:
             (user_id, course_id),
         ).fetchone()
         conn.execute("DELETE FROM waitlists WHERE id=?", (r["id"],))
+        _resequence_waitlist_locked(conn, course_id)
         if not already:
             conn.execute(
                 "INSERT INTO enrollments(user_id, course_id) VALUES (?, ?)",
@@ -321,6 +338,88 @@ def _promote_waitlist_locked(conn, course_id: int) -> str:
             )
             return r["username"]
     return ""
+
+
+def admin_reorder_waitlist(course_id: int, user_id: int, direction: str) -> str:
+    with get_conn() as conn:
+        target = conn.execute(
+            "SELECT id, queue_order FROM waitlists WHERE course_id=? AND user_id=?",
+            (course_id, user_id),
+        ).fetchone()
+        if not target:
+            return "Waitlist entry not found."
+
+        if direction not in {"up", "down"}:
+            return "Invalid direction."
+
+        if direction == "up":
+            neighbor = conn.execute(
+                """
+                SELECT id, queue_order FROM waitlists
+                WHERE course_id=? AND queue_order < ?
+                ORDER BY queue_order DESC, id DESC LIMIT 1
+                """,
+                (course_id, target["queue_order"]),
+            ).fetchone()
+        else:
+            neighbor = conn.execute(
+                """
+                SELECT id, queue_order FROM waitlists
+                WHERE course_id=? AND queue_order > ?
+                ORDER BY queue_order ASC, id ASC LIMIT 1
+                """,
+                (course_id, target["queue_order"]),
+            ).fetchone()
+
+        if not neighbor:
+            return "Cannot move further."
+
+        conn.execute("UPDATE waitlists SET queue_order=? WHERE id=?", (neighbor["queue_order"], target["id"]))
+        conn.execute("UPDATE waitlists SET queue_order=? WHERE id=?", (target["queue_order"], neighbor["id"]))
+        _resequence_waitlist_locked(conn, course_id)
+        conn.commit()
+        return "Waitlist priority updated."
+
+
+def admin_promote_waitlist_student(course_id: int, user_id: int) -> str:
+    with get_conn() as conn:
+        course = conn.execute("SELECT * FROM courses WHERE id=?", (course_id,)).fetchone()
+        if not course:
+            return "Course not found."
+        if not bool(course["is_open"]):
+            return "Course is closed. Open it before promoting."
+
+        wait_row = conn.execute(
+            "SELECT id FROM waitlists WHERE course_id=? AND user_id=?",
+            (course_id, user_id),
+        ).fetchone()
+        if not wait_row:
+            return "Selected student is not in waitlist."
+
+        enrolled = conn.execute(
+            "SELECT COUNT(*) AS n FROM enrollments WHERE course_id=?",
+            (course_id,),
+        ).fetchone()["n"]
+        if enrolled >= course["capacity"]:
+            return "Cannot promote: no vacant seat."
+
+        ok, msg = _can_enroll_now(user_id, course_id)
+        if not ok:
+            return f"Cannot promote: {msg}"
+
+        already = conn.execute(
+            "SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",
+            (user_id, course_id),
+        ).fetchone()
+        conn.execute("DELETE FROM waitlists WHERE id=?", (wait_row["id"],))
+        _resequence_waitlist_locked(conn, course_id)
+        if not already:
+            conn.execute(
+                "INSERT INTO enrollments(user_id, course_id) VALUES (?, ?)",
+                (user_id, course_id),
+            )
+        conn.commit()
+        return "Promoted and enrolled successfully."
 
 
 def set_course_open(course_id: int, is_open: bool) -> str:

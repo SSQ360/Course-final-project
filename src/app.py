@@ -6,6 +6,8 @@ from tkinter import messagebox
 from .database import init_db
 from .engine import (
     AuthUser,
+    admin_promote_waitlist_student,
+    admin_reorder_waitlist,
     admin_stats,
     auth_login,
     create_course,
@@ -229,6 +231,7 @@ class CourseApp:
 
         self.lst_admin_courses = tk.Listbox(top, width=140, height=14)
         self.lst_admin_courses.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self.lst_admin_courses.bind("<<ListboxSelect>>", lambda _e: self._admin_refresh_waitlist_panel())
 
         b = tk.Frame(top, bg="#142241")
         b.pack(fill=tk.X, padx=8, pady=(0, 8))
@@ -236,6 +239,17 @@ class CourseApp:
         tk.Button(b, text="Close Selected", command=lambda: self._admin_set_open(False)).pack(side=tk.LEFT, padx=4)
         tk.Button(b, text="Show Waitlist", command=self._admin_show_waitlist).pack(side=tk.LEFT, padx=4)
         tk.Button(b, text="Refresh", command=self._refresh_admin).pack(side=tk.LEFT, padx=4)
+
+        wait_fr = tk.LabelFrame(body, text="Selected Course Waitlist (Priority)", fg="#E7EEFF", bg="#142241")
+        wait_fr.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        self.lst_admin_waitlist = tk.Listbox(wait_fr, width=140, height=7)
+        self.lst_admin_waitlist.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        wb = tk.Frame(wait_fr, bg="#142241")
+        wb.pack(fill=tk.X, padx=8, pady=(0, 8))
+        tk.Button(wb, text="Promote Selected", command=self._admin_promote_selected).pack(side=tk.LEFT, padx=4)
+        tk.Button(wb, text="Move Up", command=lambda: self._admin_reorder_selected("up")).pack(side=tk.LEFT, padx=4)
+        tk.Button(wb, text="Move Down", command=lambda: self._admin_reorder_selected("down")).pack(side=tk.LEFT, padx=4)
+        tk.Button(wb, text="Refresh Waitlist", command=self._admin_refresh_waitlist_panel).pack(side=tk.LEFT, padx=4)
 
         bottom = tk.LabelFrame(body, text="Create Course", fg="#E7EEFF", bg="#142241")
         bottom.pack(fill=tk.X)
@@ -266,6 +280,7 @@ class CourseApp:
         self.lst_admin_courses.delete(0, tk.END)
         for c in list_courses():
             self.lst_admin_courses.insert(tk.END, format_course_line(c))
+        self._admin_refresh_waitlist_panel()
 
     def _draw_admin_stats(self) -> None:
         st = admin_stats()
@@ -303,8 +318,75 @@ class CourseApp:
         if not rows:
             messagebox.showinfo("Waitlist", "No students in waitlist for this course.")
             return
-        msg = "\n".join(f"{i+1}. {r['username']} ({r['created_at']})" for i, r in enumerate(rows))
+        msg = "\n".join(f"{i+1}. {r['username']} (priority {r['queue_order']})" for i, r in enumerate(rows))
         messagebox.showinfo("Waitlist Queue", msg)
+
+    def _admin_refresh_waitlist_panel(self) -> None:
+        self.lst_admin_waitlist.delete(0, tk.END)
+        sel = self.lst_admin_courses.curselection()
+        if not sel:
+            self.lst_admin_waitlist.insert(tk.END, "Select a course to view waitlist.")
+            return
+        line = self.lst_admin_courses.get(sel[0])
+        cid = self._extract_id(line)
+        if cid is None:
+            self.lst_admin_waitlist.insert(tk.END, "Invalid course selection.")
+            return
+        rows = list_waitlist_for_course(cid)
+        if not rows:
+            self.lst_admin_waitlist.insert(tk.END, "No students in waitlist.")
+            return
+        for i, r in enumerate(rows, start=1):
+            self.lst_admin_waitlist.insert(
+                tk.END,
+                f"[{r['user_id']}] #{i} {r['username']} | priority {r['queue_order']} | {r['created_at']}",
+            )
+
+    def _admin_reorder_selected(self, direction: str) -> None:
+        course_sel = self.lst_admin_courses.curselection()
+        wait_sel = self.lst_admin_waitlist.curselection()
+        if not course_sel:
+            messagebox.showinfo("Waitlist", "Select a course first.")
+            return
+        if not wait_sel:
+            messagebox.showinfo("Waitlist", "Select a waitlist user first.")
+            return
+        course_line = self.lst_admin_courses.get(course_sel[0])
+        cid = self._extract_id(course_line)
+        if cid is None:
+            messagebox.showerror("Waitlist", "Invalid course selection.")
+            return
+        row_line = self.lst_admin_waitlist.get(wait_sel[0])
+        uid = self._extract_id(row_line)
+        if uid is None:
+            messagebox.showerror("Waitlist", "Invalid waitlist row.")
+            return
+        msg = admin_reorder_waitlist(cid, uid, direction)
+        messagebox.showinfo("Waitlist", msg)
+        self._refresh_admin()
+
+    def _admin_promote_selected(self) -> None:
+        course_sel = self.lst_admin_courses.curselection()
+        wait_sel = self.lst_admin_waitlist.curselection()
+        if not course_sel:
+            messagebox.showinfo("Promote", "Select a course first.")
+            return
+        if not wait_sel:
+            messagebox.showinfo("Promote", "Select a waitlist user first.")
+            return
+        course_line = self.lst_admin_courses.get(course_sel[0])
+        cid = self._extract_id(course_line)
+        if cid is None:
+            messagebox.showerror("Promote", "Invalid course selection.")
+            return
+        row_line = self.lst_admin_waitlist.get(wait_sel[0])
+        uid = self._extract_id(row_line)
+        if uid is None:
+            messagebox.showerror("Promote", "Invalid waitlist row.")
+            return
+        msg = admin_promote_waitlist_student(cid, uid)
+        messagebox.showinfo("Promote", msg)
+        self._refresh_admin()
 
     def _admin_set_open(self, is_open: bool) -> None:
         sel = self.lst_admin_courses.curselection()
